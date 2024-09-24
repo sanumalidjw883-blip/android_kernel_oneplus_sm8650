@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 // Copyright (c) 2011-2017, 2020-2021, The Linux Foundation. All rights reserved.
 // Copyright (c) 2018, Linaro Limited
-// Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+// Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
 
 #include <linux/irq.h>
 #include <linux/kernel.h>
@@ -201,6 +201,10 @@ struct qcom_slim_ngd_ctrl {
 	struct work_struct ngd_up_work;
 	struct workqueue_struct *mwq;
 	struct completion qmi_up;
+//#ifdef OPLUS_ARCH_EXTENDS
+	struct completion xfer_done;
+	struct completion sync_done;
+//#endif
 	spinlock_t tx_buf_lock;
 	struct mutex tx_lock;
 	struct mutex suspend_resume_lock;
@@ -970,7 +974,9 @@ static int qcom_slim_ngd_xfer_msg(struct slim_controller *sctrl,
 {
 	struct qcom_slim_ngd_ctrl *ctrl = dev_get_drvdata(sctrl->dev);
 	DECLARE_COMPLETION_ONSTACK(tx_sent);
-	DECLARE_COMPLETION_ONSTACK(done);
+//#ifndef OPLUS_ARCH_EXTENDS
+//	DECLARE_COMPLETION_ONSTACK(done);
+//#endif
 	int ret, timeout, i;
 	u8 wbuf[SLIM_MSGQ_BUF_LEN];
 	u8 rbuf[SLIM_MSGQ_BUF_LEN];
@@ -978,6 +984,10 @@ static int qcom_slim_ngd_xfer_msg(struct slim_controller *sctrl,
 	u8 *puc;
 	u8 la = txn->la;
 	bool usr_msg = false;
+
+//#ifdef OPLUS_ARCH_EXTENDS
+	reinit_completion(&ctrl->xfer_done);
+//#endif
 
 	if (txn->mt == SLIM_MSG_MT_CORE &&
 		(txn->mc >= SLIM_MSG_MC_BEGIN_RECONFIGURATION &&
@@ -1049,7 +1059,11 @@ static int qcom_slim_ngd_xfer_msg(struct slim_controller *sctrl,
 		if (txn->mc != SLIM_USR_MC_DISCONNECT_PORT)
 			wbuf[i++] = txn->msg->wbuf[1];
 
-		txn->comp = &done;
+//#ifdef OPLUS_ARCH_EXTENDS
+		txn->comp = &ctrl->xfer_done;
+//#else
+//		txn->comp = &done;
+//#endif
 		ret = slim_alloc_txn_tid(sctrl, txn);
 		if (ret) {
 			SLIM_ERR(ctrl, "Unable to allocate TID\n");
@@ -1116,7 +1130,11 @@ static int qcom_slim_ngd_xfer_msg(struct slim_controller *sctrl,
 	}
 
 	if (usr_msg) {
-		timeout = wait_for_completion_timeout(&done, HZ);
+//#ifdef OPLUS_ARCH_EXTENDS
+		timeout = wait_for_completion_timeout(&ctrl->xfer_done, HZ);
+//#else
+//		timeout = wait_for_completion_timeout(&done, HZ);
+//endif
 		if (!timeout) {
 			SLIM_WARN(ctrl, "TX usr_msg timed out:MC:0x%x,mt:0x%x",
 				txn->mc, txn->mt);
@@ -1136,8 +1154,13 @@ static int qcom_slim_ngd_xfer_msg_sync(struct slim_controller *ctrl,
 {
 	struct qcom_slim_ngd_ctrl *dev =
 		container_of(ctrl, struct qcom_slim_ngd_ctrl, ctrl);
-	DECLARE_COMPLETION_ONSTACK(done);
+//#ifndef OPLUS_ARCH_EXTENDS
+//	DECLARE_COMPLETION_ONSTACK(done);
+//#endif
 	int ret, timeout;
+//#ifdef OPLUS_ARCH_EXTENDS
+	reinit_completion(&dev->sync_done);
+//#endif
 
 	ret = pm_runtime_get_sync(ctrl->dev);
 	if (ret < 0) {
@@ -1149,7 +1172,11 @@ static int qcom_slim_ngd_xfer_msg_sync(struct slim_controller *ctrl,
 	SLIM_INFO(dev, "SLIM %s: PM get_sync count:%d TID:%d\n",
 		__func__, atomic_read(&ctrl->dev->power.usage_count), txn->tid);
 
-	txn->comp = &done;
+//#ifdef OPLUS_ARCH_EXTENDS
+	txn->comp = &dev->sync_done;
+//#else
+//	txn->comp = &done;
+//#endif
 
 	ret = qcom_slim_ngd_xfer_msg(ctrl, txn);
 	if (ret) {
@@ -1158,7 +1185,11 @@ static int qcom_slim_ngd_xfer_msg_sync(struct slim_controller *ctrl,
 		goto err;
 	}
 
-	timeout = wait_for_completion_timeout(&done, HZ);
+//#ifdef OPLUS_ARCH_EXTENDS
+	timeout = wait_for_completion_timeout(&dev->sync_done, HZ);
+//#else
+//	timeout = wait_for_completion_timeout(&done, HZ);
+//#endif
 	if (!timeout) {
 		SLIM_WARN(dev, "TX sync timed out:MC:0x%x,mt:0x%x", txn->mc,
 				txn->mt);
@@ -2170,6 +2201,10 @@ static int qcom_slim_ngd_ctrl_probe(struct platform_device *pdev)
 	init_completion(&ctrl->ctrl_up);
 	init_completion(&ctrl->qmi.qmi_comp);
 	init_completion(&ctrl->qmi_up);
+//#ifdef OPLUS_ARCH_EXTENDS
+	init_completion(&ctrl->xfer_done);
+	init_completion(&ctrl->sync_done);
+//#endif
 
 	ctrl->pdr = pdr_handle_alloc(slim_pd_status, ctrl);
 	if (IS_ERR(ctrl->pdr)) {

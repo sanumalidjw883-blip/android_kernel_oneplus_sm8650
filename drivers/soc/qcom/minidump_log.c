@@ -1330,8 +1330,9 @@ static int md_module_process(struct module *mod)
 
 	if (md_mod_info_seq_buf) {
 		base_addr = (unsigned long)mod->core_layout.base;
-		seq_buf_printf(md_mod_info_seq_buf, "name: %s, base: %lx",
-				mod->name, base_addr);
+        seq_buf_printf(md_mod_info_seq_buf, "name: %s, base: %lx, nplt: %d",
+			mod->name, base_addr, mod->arch.core.plt_max_entries +
+			1 + NR_FTRACE_PLTS);
 		if (is_key_module) {
 			dump_start = base_addr +
 					mod->core_layout.ro_after_init_size;
@@ -1548,8 +1549,7 @@ static void register_pstore_info(void)
 }
 #endif
 
-/* #ifdef OPLUS_FEATURE_DFR
-xiebaixue@TECH.BSP.Stability,2024/02/26, add for minidump vcpu stack */
+/* #ifdef OPLUS_FEATURE_DFR */
 static bool current_stack_enable = false;
 
 int clear_md_region(int regno,struct md_region *ksp_entry)
@@ -1686,8 +1686,7 @@ static ssize_t current_stack_show(struct file *file, char __user *buf,
 int msm_minidump_log_init(void)
 {
 
-	/* #ifdef OPLUS_FEATURE_DFR
-	xiebaixue@TECH.BSP.Stability,2024/02/26, add for minidump vcpu stack */
+	/* #ifdef OPLUS_FEATURE_DFR */
 	struct proc_dir_entry *pe;
 	pr_info("msm_minidump_log_init\n");
 	pe = proc_create("minidump_vcpu_stack", 0666, NULL, &current_stack_fops);
@@ -1701,7 +1700,6 @@ int msm_minidump_log_init(void)
 	is_vmap_stack = IS_ENABLED(CONFIG_VMAP_STACK);
 	register_irq_stack();
 /*#ifdef OPLUS_FEATURE_DFR
-xiebaixue@TECH.BSP.Stability,2024/02/26, add for minidump vcpu stack
 #ifdef CONFIG_QCOM_DYN_MINIDUMP_STACK
 	register_current_stack();
 	register_suspend_context();
