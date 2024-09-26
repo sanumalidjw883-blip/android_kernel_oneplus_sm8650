@@ -33,7 +33,7 @@
 
 static const unsigned int orders[] = {0, 1};
 /* 32M for order 0, 8M  for order1 by default */
-static const unsigned int page_pool_nr_pages[] = {(SZ_32M >> PAGE_SHIFT), (SZ_8M >> PAGE_SHIFT)};
+static const unsigned int page_pool_nr_pages[] = {((SZ_32M + SZ_16M) >> PAGE_SHIFT), (SZ_8M >> PAGE_SHIFT)};
 #define NUM_ORDERS ARRAY_SIZE(orders)
 static struct ux_page_pool *pools[NUM_ORDERS];
 static struct task_struct *ux_page_pool_tsk = NULL;

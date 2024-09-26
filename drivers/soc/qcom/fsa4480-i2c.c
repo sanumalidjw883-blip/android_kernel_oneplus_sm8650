@@ -41,6 +41,7 @@
 /* Add DIO4480 support */
 #define HL5280_DEVICE_REG_VALUE 0x49
 #define DIO4480_DEVICE_REG_VALUE 0xF1
+#define DIO4483_DEVICE_REG_VALUE 0xF5
 /*add WAS4783 support*/
 #define WAS4783_DEVICE_REG_VALUE 0x31
 #define INVALID_DEVICE_REG_VALUE 0x00
@@ -90,7 +91,8 @@ enum switch_vendor {
     FSA4480 = 0,
     HL5280,
     DIO4480,
-    WAS4783
+    WAS4783,
+    DIO4483
 };
 
 /* Add for 3rd protocal stack notifier */
@@ -234,7 +236,7 @@ static void fsa4480_usbc_update_settings(struct fsa4480_priv *fsa_priv,
 
 	#ifdef OPLUS_ARCH_EXTENDS
 	/* Add DIO4480 support */
-	if(fsa_priv->vendor == DIO4480) {
+	if((fsa_priv->vendor == DIO4480) || (fsa_priv->vendor == DIO4483)) {
 		regmap_write(fsa_priv->regmap, FSA4480_RESET, 0x01);//reset DIO4480
 		usleep_range(1000, 1005);
 	}
@@ -475,7 +477,7 @@ static int fsa4480_usbc_analog_setup_switches_ucsi(
 
 		#ifdef OPLUS_ARCH_EXTENDS
 		/* Add DIO4480 support */
-		if(fsa_priv->vendor != DIO4480) {
+		if((fsa_priv->vendor != DIO4480) && (fsa_priv->vendor != DIO4483)) {
 			/* Add for open auto mic DET */
 			usleep_range(1000, 1005);
 			regmap_write(fsa_priv->regmap, FSA4480_FUN_EN, 0x45);
@@ -553,7 +555,7 @@ static int typec_switch_to_fast_charger(struct fsa4480_priv *fsa_priv, unsigned 
 		return -EINVAL;
 	}
 
-	if (fsa_priv->vendor != WAS4783) {
+	if ((fsa_priv->vendor != WAS4783) && (fsa_priv->vendor != DIO4483)) {
 		dev_err(dev, "%s, current chip 0x%02x, is not supported!", __func__, fsa_priv->vendor);
 		return -EINVAL;
 	}
@@ -570,7 +572,11 @@ static int typec_switch_to_fast_charger(struct fsa4480_priv *fsa_priv, unsigned 
 
 	dev_info(dev, "%s: to_fast_charger = %ld\n", __func__, to_fast_charger);
 	if (to_fast_charger) {
-		regmap_write(fsa_priv->regmap, FSA4480_SWITCH_CONTROL, 0x80);
+		if (fsa_priv->vendor == DIO4483)
+			regmap_write(fsa_priv->regmap, FSA4480_SWITCH_CONTROL, 0x98);
+		else
+			regmap_write(fsa_priv->regmap, FSA4480_SWITCH_CONTROL, 0x80);
+
 		regmap_write(fsa_priv->regmap, FSA4480_SWITCH_SETTINGS, 0x98);
 		usleep_range(10000, 10005);
 		dev_info(dev, "%s, charger plugin. set to switch mode", __func__);
@@ -617,7 +623,7 @@ static int typec_switch_get_status(struct fsa4480_priv *fsa_priv)
 	}
 
 	mutex_lock(&fsa_priv->noti_lock);
-	if (fsa_priv->vendor == WAS4783) {
+	if ((fsa_priv->vendor == WAS4783) || (fsa_priv->vendor == DIO4483)) {
 		rc |= TYPEC_AUDIO_SWITCH_STATE_SUPPORT;
 	}
 
@@ -729,6 +735,7 @@ int fsa4480_check_cross_conn(struct device_node *node)
 	    ret = 0;
 	    break;
 	case DIO4480:
+	case DIO4483:
 	    ret = 1;
 	    break;
 	default:
@@ -1066,6 +1073,9 @@ static int fsa4480_probe(struct i2c_client *i2c,
 	} else if (reg_value == DIO4480_DEVICE_REG_VALUE) {
 		dev_info(fsa_priv->dev, "%s: switch chip is DIO4480\n", __func__);
 		fsa_priv->vendor = DIO4480;
+	} else if (reg_value == DIO4483_DEVICE_REG_VALUE) {
+		dev_info(fsa_priv->dev, "%s: switch chip is DIO4483\n", __func__);
+		fsa_priv->vendor = DIO4483;
 	} else if (reg_value == WAS4783_DEVICE_REG_VALUE) {
 		dev_info(fsa_priv->dev, "%s: switch chip is WAS4783\n", __func__);
 		fsa_priv->vendor = WAS4783;
@@ -1080,7 +1090,7 @@ static int fsa4480_probe(struct i2c_client *i2c,
 		fsa_priv->vendor = FSA4480;
 	}
 
-	if (fsa_priv->vendor != DIO4480) {
+	if ((fsa_priv->vendor != DIO4480) && (fsa_priv->vendor != DIO4483)) {
 		fsa4480_update_reg_defaults(fsa_priv->regmap);
 		devm_regmap_qti_debugfs_register(fsa_priv->dev, fsa_priv->regmap);
 	} else {
@@ -1180,7 +1190,7 @@ tcp_register_finish:
 	/* add WAS4783 support */
 	mutex_init(&fsa_priv->noti_lock);
 
-	if (fsa_priv->vendor == WAS4783) {
+	if ((fsa_priv->vendor == WAS4783) || (fsa_priv->vendor == DIO4483)) {
 		fsa_priv->chg_nb.notifier_call = typec_switch_chg_event_changed;
 		fsa_priv->chg_nb.priority = 0;
 		rc = register_chg_glink_notifier(&fsa_priv->chg_nb);
@@ -1286,6 +1296,9 @@ static void fsa4480_remove(struct i2c_client *i2c)
 	if (fsa_priv->vendor == WAS4783) {
 		unregister_chg_glink_notifier(&fsa_priv->chg_nb);
 	}
+	if (fsa_priv->vendor == DIO4483) {
+		unregister_chg_glink_notifier(&fsa_priv->chg_nb);
+	}
 	mutex_destroy(&fsa_priv->noti_lock);
 	devm_kfree(&i2c->dev, fsa_priv);
 	#endif /* OPLUS_ARCH_EXTENDS */
@@ -1306,7 +1319,7 @@ static void fsa4480_shutdown(struct i2c_client *i2c) {
 	pr_info("%s: recover all register while shutdown\n", __func__);
 
 	/* reset DIO4480 */
-	if (fsa_priv->vendor == DIO4480) {
+	if ((fsa_priv->vendor == DIO4480) || (fsa_priv->vendor == DIO4483)) {
 		regmap_write(fsa_priv->regmap, FSA4480_RESET, 0x01);
 		return;
 	}
