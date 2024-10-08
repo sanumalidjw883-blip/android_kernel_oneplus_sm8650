@@ -3133,10 +3133,11 @@ early_param("cont_pte_sup_mem", cmdline_parse_cont_pte_sup_mem);
 static int __init cmdline_parse_prjname(char *p)
 {
 	static const char *prjs[] = {
-		"22825", "22877", "22111", "23607", "23803", "23609", "23622", "23718", "23814", "22112", "24687", "23631", NULL,
+		"22825", "22877", "22111", "23607", "23803", "23609", "23622", "23718", "23814", "22112", "24687", "23631", "23927", "23926", "23978", "23976",
+		"24211", "24212", NULL,
 	};
 	static const char *ext_prjs[] = {
-		"22877", "23718", "24687", "24672", NULL, /* FIXME: add projects which don't support art alignment */
+		"22877", "23718", "24687", "24672", "23978", "23976", "24211", "24212", NULL, /* FIXME: add projects which don't support art alignment */
 	};
 
 	int i = 0;

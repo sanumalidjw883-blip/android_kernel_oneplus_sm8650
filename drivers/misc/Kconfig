@@ -560,4 +560,5 @@ source "drivers/misc/pvpanic/Kconfig"
 source "drivers/misc/mchp_pci1xxxx/Kconfig"
 source "drivers/misc/vibrator/aw8697_haptic/Kconfig"
 source "drivers/misc/vibrator/si_haptic/Kconfig"
+source "drivers/misc/oplus_power_notifier/Kconfig"
 endmenu

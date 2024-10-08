@@ -139,3 +139,4 @@ oplus_storage_log.ko
 oplus_uprobe.ko
 oplus_subsys_sleep_monitor.ko
 oplus_procs_load.ko
+oplus_power_notifier.ko

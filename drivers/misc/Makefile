@@ -71,3 +71,4 @@ obj-$(CONFIG_OPLUS_POWER_PROCS_LOAD) += oplus_procs_load/
 obj-$(CONFIG_AW8697_HAPTIC) += vibrator/aw8697_haptic/
 obj-$(CONFIG_SIH_VIBRATOR) += vibrator/si_haptic/
 #endif
+obj-$(CONFIG_OPLUS_POWER_NOTIFIER) += oplus_power_notifier/

@@ -332,6 +332,7 @@ def define_pineapple():
         "drivers/soc/oplus/storage/common/oplus_uprobe/oplus_uprobe.ko",
         "drivers/soc/oplus/power/subsys_sleep_monitor/oplus_subsys_sleep_monitor.ko",
         "drivers/misc/oplus_procs_load/oplus_procs_load.ko",
+        "drivers/misc/oplus_power_notifier/oplus_power_notifier.ko",
     ]
 
     # Updated for kernel modules that are dynamically loaded based on environment variables

@@ -119,7 +119,6 @@ static void walt_rt_energy_aware_wake_cpu(struct task_struct *task, struct cpuma
 	int end_index = 0;
 	bool best_cpu_lt = true;
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_SCHED_ASSIST)
-	cpumask_t visit_cpus;
 	bool ignore_overutil = false;
 #endif
 
@@ -141,27 +140,13 @@ static void walt_rt_energy_aware_wake_cpu(struct task_struct *task, struct cpuma
 	rcu_read_lock();
 
 	if (num_sched_clusters > 3 && order_index == 0)
-		end_index = 1;
+		end_index = num_sched_clusters;
 #if IS_ENABLED(CONFIG_OPLUS_FEATURE_SCHED_ASSIST)
 retry:
-	if (!is_state1() && cpumask_subset(&part_haltable_cpus, lowest_mask)) {
-		cpumask_or(lowest_mask, lowest_mask, &asym_cap_sibling_cpus);
-	}
-	for (cluster = 0; cluster < num_sched_clusters; cluster++) {
-		cpumask_copy(&visit_cpus, &cpu_array[order_index][cluster]);
-		if (!is_state1() && cpumask_subset(&visit_cpus, &asym_cap_sibling_cpus)) {
-			if (cpumask_equal(&visit_cpus, &part_haltable_cpus)) {
-				cpumask_copy(&visit_cpus, &asym_cap_sibling_cpus);
-			} else {
-				continue;
-			}
-		}
+#endif
 
-		for_each_cpu_and(cpu, lowest_mask, &visit_cpus) {
-#elif
 	for (cluster = 0; cluster < num_sched_clusters; cluster++) {
 		for_each_cpu_and(cpu, lowest_mask, &cpu_array[order_index][cluster]) {
-#endif
 			bool lt;
 
 			trace_sched_cpu_util(cpu, lowest_mask);

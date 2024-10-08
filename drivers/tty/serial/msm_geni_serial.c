@@ -2278,6 +2278,14 @@ static int msm_geni_serial_prep_dma_tx(struct uart_port *uport)
 	if (!xmit_size)
 		return -EPERM;
 
+#ifdef CONFIG_OPLUS_POGOPIN_FUNCTION
+	if(pogo_keyboard_ops.check && pogo_keyboard_ops.write) {
+		if(pogo_keyboard_ops.check(uport)) {
+			pogo_keyboard_ops.write(NULL,1);
+		}
+	}
+#endif
+
 	dump_ipc(uport, msm_port->ipc_log_tx, "DMA Tx",
 		 (char *)&xmit->buf[xmit->tail], 0, xmit_size);
 
@@ -2423,14 +2431,6 @@ static void msm_geni_serial_start_tx(struct uart_port *uport)
 			"%s.Power on.\n", __func__);
 		pm_runtime_get(uport->dev);
 	}
-
-#ifdef CONFIG_OPLUS_POGOPIN_FUNCTION
-	if(pogo_keyboard_ops.check && pogo_keyboard_ops.write) {
-		if(pogo_keyboard_ops.check(uport)) {
-			pogo_keyboard_ops.write(NULL,1);
-		}
-	}
-#endif
 
 	/*
 	 * If flush has been triggered earlier from userspace and port is
