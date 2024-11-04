@@ -57,6 +57,7 @@ struct wcd_usbss_ctxt {
 /* Checking whether the surge occurs */
 	struct workqueue_struct *check_surge_workqueue;
 	struct delayed_work check_surge_delaywork;
+	bool usb_sbu_compliance;
 //#endif /* OPLUS_ARCH_EXTENDS */
 #ifdef OPLUS_FEATURE_CHG_BASIC
 	struct mutex noti_lock;
