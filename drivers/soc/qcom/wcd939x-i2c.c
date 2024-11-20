@@ -1485,6 +1485,13 @@ int wcd_usbss_switch_update(enum wcd_usbss_cable_types ctype,
 		switch (ctype) {
 		case WCD_USBSS_USB:
 			wcd_usbss_dpdm_switch_update(true, true);
+// #ifdef OPLUS_ARCH_EXTENDS
+			if (wcd_usbss_ctxt_->usb_sbu_compliance) {
+				/* Disable SBU1/2 2K PLDN */
+				regmap_update_bits(wcd_usbss_ctxt_->regmap, WCD_USBSS_MG1_BIAS, 0x01, 0x00);
+				regmap_update_bits(wcd_usbss_ctxt_->regmap, WCD_USBSS_MG2_BIAS, 0x01, 0x00);
+			}
+// #endif /* OPLUS_ARCH_EXTENDS */
 			break;
 		case WCD_USBSS_AATC:
 			/* Update power mode to mode 1 for AATC */
@@ -2118,6 +2125,14 @@ static int wcd_usbss_probe(struct i2c_client *i2c)
 		dev_err(priv->dev, "Failed to initialize regmap: %d\n", rc);
 		goto err_data;
 	}
+
+// #ifdef OPLUS_ARCH_EXTENDS
+	priv->usb_sbu_compliance = false;
+	if (of_find_property(i2c->dev.of_node, "wcd-usb-sbu-compliance", NULL)) {
+		dev_err(priv->dev, "disable SBU1/2 2K pulldown for USB mode\n");
+		priv->usb_sbu_compliance = true;
+	}
+// #endif /* OPLUS_ARCH_EXTENDS */
 
 	/* OVP-Fuse settings recommended from HW */
 #if 0 /* OPLUS_BUG_COMPATIBILITY */
