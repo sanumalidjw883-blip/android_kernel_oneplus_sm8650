@@ -22,7 +22,9 @@ static void guidev_resource_release(struct guide_dev *gdata)
 {
     gpio_free(gdata->hw_res.irq_gpio);
     gpio_free(gdata->hw_res.ven_gpio);
-    gpio_free(gdata->hw_res.download_gpio);
+    if (gdata->dlpin_flag) {
+        gpio_free(gdata->hw_res.download_gpio);
+    }
 }
 
 static void guidev_hw_reset(void)
@@ -110,6 +112,7 @@ static int guidev_parse_dts(struct guide_dev *gdata)
                                   &gdata->hw_res.download_flag);
 
     if (gpio_is_valid(gdata->hw_res.download_gpio)) {
+        gdata->dlpin_flag = true;
         rc = gpio_request(gdata->hw_res.download_gpio, "guidev_fw_download");
 
         if (rc) {
@@ -117,17 +120,14 @@ static int guidev_parse_dts(struct guide_dev *gdata)
                      gdata->hw_res.download_gpio);
         }
     } else {
+        gdata->dlpin_flag = false;
         TMS_ERR("fw-download gpio not specified in dts\n");
-        ret = -EINVAL;
-        goto err_fw_download;
     }
 
     TMS_INFO("irq_gpio = %d, ven_gpio = %d, dwnld_gpio = %d, error:%d\n",
               gdata->hw_res.irq_gpio, gdata->hw_res.ven_gpio, gdata->hw_res.download_gpio,
               ret);
     return SUCCESS;
-err_fw_download:
-    gpio_free(gdata->hw_res.ven_gpio);
 err_ven:
     gpio_free(gdata->hw_res.irq_gpio);
     TMS_ERR("Failed, ret = %d\n", ret);
@@ -178,8 +178,13 @@ static int tms_chip_identification(struct match_info info, uint8_t *buf)
     } else if (info.pattern == TMS_BL) {
         cmp_byte = info.sum - TMS_BL_CMP_BYTE - info.check_sum;
     } else {
-        return -ERROR;
         TMS_ERR("Chip identified fail\n");
+        return -ERROR;
+    }
+
+    if (cmp_byte < 0) {
+        TMS_ERR("invalid response\n");
+        return -ERROR;
     }
 
     TMS_INFO("Compare major version is %02x\n", buf[cmp_byte]);
@@ -264,11 +269,18 @@ static int tms_check_chip_info(struct guide_dev *gdata, struct match_info info)
 
     if (info.pattern == TMS_FW) {
         guidev_hw_reset();
+        if (!gdata->dlpin_flag) {
+            TMS_DEBUG("TMS chip jump to FW\n");
+            nfc_jump_fw(gdata->client, gdata->hw_res.irq_gpio);
+        }
         TMS_DEBUG("TMS chip FW match check...\n");
     } else if (info.pattern == TMS_BL) {
         if (!gdata->tms->set_gpio) {
             TMS_ERR("gdata->tms->set_gpio is NULL");
             return -ERROR;
+        }
+        if (gdata->dlpin_flag) {
+            gdata->tms->set_download(gdata->hw_res, ON);
         }
         gdata->tms->set_gpio(gdata->hw_res.download_gpio, ON, WAIT_TIME_NONE, WAIT_TIME_10000US);
         guidev_hw_reset();
@@ -296,6 +308,9 @@ static int tms_check_chip_info(struct guide_dev *gdata, struct match_info info)
                 info.check_sum = 0;
                 ret = tms_receive_process(gdata, &info, read_buf);
             } else if (info.pattern == TMS_BL) {
+                 if (gdata->dlpin_flag) {
+                    gdata->tms->set_download(gdata->hw_res, OFF);
+                }
                 gdata->tms->set_gpio(gdata->hw_res.download_gpio, OFF, WAIT_TIME_NONE, WAIT_TIME_10000US);
                 guidev_hw_reset();
             }

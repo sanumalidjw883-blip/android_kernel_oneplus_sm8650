@@ -43,7 +43,114 @@ void nfc_hard_reset(struct nfc_info *nfc)
     nfc->tms->set_gpio(nfc->hw_res.ven_gpio, OFF, WAIT_TIME_20000US, WAIT_TIME_20000US);
     nfc->tms->set_gpio(nfc->hw_res.ven_gpio, ON, WAIT_TIME_NONE, WAIT_TIME_20000US);
 }
+static bool nfc_write(struct i2c_client *client, const uint8_t *cmd, size_t len)
+{
+    int count;
+    ssize_t ret;
 
+    for (count = 0; count < RETRY_TIMES; count++) {
+        ret = i2c_master_send(client, cmd, len);
+        if (ret == len) {
+            tms_buffer_dump("Tx ->", cmd, len);
+            return true;
+        }
+
+        TMS_ERR("Error writting: %zd\n", ret);
+    }
+
+    return false;
+}
+
+static bool nfc_read_header(struct i2c_client *client, unsigned int irq_gpio,
+                            uint8_t *header, size_t header_len)
+{
+    ssize_t ret;
+    int retry = 10;
+
+    do {
+        if (gpio_get_value(irq_gpio)) {
+            break;
+        }
+
+        TMS_DEBUG("Wait for data...\n");
+        usleep_range(WAIT_TIME_1000US, WAIT_TIME_1000US + 100);
+    } while (retry--);
+
+    ret = i2c_master_recv(client, header, header_len);
+    if (ret == header_len) {
+        tms_buffer_dump("Rx <-", header, header_len);
+        return true;
+    }
+
+    TMS_ERR("Error reading header: %zd\n", ret);
+    return false;
+}
+
+static bool nfc_read_payload(struct i2c_client *client, unsigned int irq_gpio,
+                             uint8_t *payload, size_t payload_len)
+{
+    ssize_t ret;
+    int retry = 10;
+    size_t read_len = (payload_len == 1) ? payload_len + 1 : payload_len;
+
+    do {
+        if (gpio_get_value(irq_gpio)) {
+            break;
+        }
+
+        TMS_DEBUG("Wait for data...\n");
+        usleep_range(WAIT_TIME_1000US, WAIT_TIME_1000US + 100);
+    } while (retry--);
+
+    ret = i2c_master_recv(client, payload, read_len);
+    if (ret == read_len) {
+        tms_buffer_dump("Rx <-", payload, payload_len);
+        return true;
+    }
+
+    TMS_ERR("Error reading payload: %zd\n", ret);
+    return false;
+}
+
+void nfc_jump_fw(struct i2c_client *client, unsigned int irq_gpio)
+{
+    const uint8_t core_reset[] = {0x20, 0x00, 0x01, 0x00};
+    const uint8_t chk_rsp_hdr[] = {0x40, 0x00, 0x01};
+    uint8_t rsp_hdr[NCI_HDR_LEN] = {0};
+    uint8_t rsp_payload[MAX_NCI_PAYLOAD_LEN] = {0};
+    /* It is possible to receive up to two times and redundant once */
+    int retry = 2;
+
+    if (!nfc_write(client, core_reset, sizeof(core_reset))) {
+        TMS_ERR("send core_reset error\n");
+        return;
+    }
+
+    do {
+        if (!nfc_read_header(client, irq_gpio, rsp_hdr, NCI_HDR_LEN)) {
+            return;
+        }
+
+        if (!nfc_read_payload(client, irq_gpio, rsp_payload, rsp_hdr[HEAD_PAYLOAD_BYTE])) {
+            TMS_ERR("Read core_reset rsp payload error\n");
+            return;
+        }
+
+        if ((!memcmp(rsp_hdr, chk_rsp_hdr, NCI_HDR_LEN)) && rsp_payload[0] == 0xFE) {
+            usleep_range(WAIT_TIME_10000US, WAIT_TIME_10000US + 100);
+            /* If an NTF is reported by the FW after hard reset, it needs to be discarded */
+            retry = 1;
+            continue;
+        } else if ((!memcmp(rsp_hdr, chk_rsp_hdr, NCI_HDR_LEN)) && rsp_payload[0] == 0x00) {
+            /* Core reset NTF needs to be received in FW */
+            retry = 1;
+            continue;
+        } else if ((!memcmp(rsp_hdr, chk_rsp_hdr, NCI_HDR_LEN)) && rsp_payload[0] == 0xFF) {
+            TMS_ERR("Failed, need upgrade the firmware\n");
+            break;
+        }
+    } while (retry--);
+}
 void nfc_disable_irq(struct nfc_info *nfc)
 {
     unsigned long flag;
@@ -127,6 +234,9 @@ void nfc_power_control(struct nfc_info *nfc, bool state)
 
 void nfc_fw_download_control(struct nfc_info *nfc, bool state)
 {
+     if (!nfc->dlpin_flag) {
+        return;
+    }
     if (!nfc->tms->set_gpio) {
         TMS_ERR("nfc->tms->set_gpio is NULL");
         return;
@@ -207,7 +317,9 @@ void nfc_gpio_release(struct nfc_info *nfc)
 {
     gpio_free(nfc->hw_res.irq_gpio);
     gpio_free(nfc->hw_res.ven_gpio);
-    gpio_free(nfc->hw_res.download_gpio);
+    if (nfc->dlpin_flag) {
+        gpio_free(nfc->hw_res.download_gpio);
+    }
 }
 
 static int nfc_gpio_configure_init(struct nfc_info *nfc)
@@ -329,6 +441,7 @@ static int nfc_parse_dts_init(struct nfc_info *nfc)
                                 &nfc->hw_res.download_flag);
 
     if (gpio_is_valid(nfc->hw_res.download_gpio)) {
+        nfc->dlpin_flag = true;
         rcv = gpio_request(nfc->hw_res.download_gpio, "nfc_fw_download");
 
         if (rcv) {
@@ -336,9 +449,8 @@ static int nfc_parse_dts_init(struct nfc_info *nfc)
                      nfc->hw_res.download_gpio);
         }
     } else {
+        nfc->dlpin_flag = true;
         TMS_ERR("FW-Download gpio not specified\n");
-        ret = -EINVAL;
-        goto err_free_ven;
     }
 
     TMS_DEBUG("NFC device name is %s, count = %d\n", nfc->dev.name,
@@ -346,8 +458,6 @@ static int nfc_parse_dts_init(struct nfc_info *nfc)
     TMS_INFO("irq_gpio = %d, ven_gpio = %d, download_gpio = %d\n",
              nfc->hw_res.irq_gpio, nfc->hw_res.ven_gpio, nfc->hw_res.download_gpio);
     return SUCCESS;
-err_free_ven:
-    gpio_free(nfc->hw_res.ven_gpio);
 err_free_irq:
     gpio_free(nfc->hw_res.irq_gpio);
     TMS_ERR("Failed, ret = %d\n", ret);

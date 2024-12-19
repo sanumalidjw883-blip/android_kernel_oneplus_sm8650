@@ -58,6 +58,8 @@
 #define ERROR                     1
 #define PAGESIZE                  512
 #define WAIT_TIME_NONE            0
+#define WAIT_TIME_1000US          1000
+#define WAIT_TIME_10000US         10000
 #define WAIT_TIME_10000US         10000
 #define WAIT_TIME_20000US         20000
 
@@ -110,6 +112,9 @@ struct tms_info {
     struct proc_dir_entry       *prEntry;
     int (*registe_device)       (struct dev_register *dev, void *data);
     void (*unregiste_device)    (struct dev_register *dev);
+    void (*set_ven)             (struct hw_resource hw_res, bool state);
+    void (*set_download)        (struct hw_resource hw_res, bool state);
+    void (*set_reset)           (struct hw_resource hw_res, bool state);
     void (*set_gpio)            (unsigned int gpio, bool state,
                                  unsigned long predelay,
                                  unsigned long postdelay);
