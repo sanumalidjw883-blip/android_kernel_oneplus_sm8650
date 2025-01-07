@@ -2662,6 +2662,7 @@ static void ufs_qcom_advertise_quirks(struct ufs_hba *hba)
 static void ufs_qcom_set_caps(struct ufs_hba *hba)
 {
 	struct ufs_qcom_host *host = ufshcd_get_variant(hba);
+	struct device_node *np = hba->dev->of_node;
 
 	if (!host->disable_lpm) {
 		hba->caps |= UFSHCD_CAP_CLK_GATING |
@@ -2672,6 +2673,10 @@ static void ufs_qcom_set_caps(struct ufs_hba *hba)
 			UFSHCD_CAP_WB_WITH_CLK_SCALING;
 		if (!host->disable_wb_support)
 			hba->caps |= UFSHCD_CAP_WB_EN;
+	}
+
+	if (of_property_read_bool(np, "ufshc_cap_clk_scaling")) {
+		hba->caps |= UFSHCD_CAP_CLK_SCALING;
 	}
 
 	hba->caps |= UFSHCD_CAP_CRYPTO;

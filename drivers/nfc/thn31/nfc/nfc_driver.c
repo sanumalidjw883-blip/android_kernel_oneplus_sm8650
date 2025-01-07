@@ -255,20 +255,19 @@ ssize_t nfc_device_read(struct file *file, char __user *buf, size_t count,
         return -EPERM;
     }
 
-    /* malloc read buffer */
-    read_buf = devm_kzalloc(nfc->i2c_dev, count, GFP_DMA | GFP_KERNEL);
-
-    if (!read_buf) {
-        return -ENOMEM;
-    }
-
-    memset(read_buf, 0x00, count);
     mutex_lock(&nfc->read_mutex);
 
     if (last_count == 3 && count == 1) {
         TMS_DEBUG("Need read 2 bytes\n");
         need2byte = true;
         ++count;
+    }
+/* malloc read buffer */
+    read_buf = devm_kzalloc(nfc->i2c_dev, count, GFP_DMA | GFP_KERNEL);
+
+    if (!read_buf) {
+        ret = -ENOMEM;
+        goto err_release_read;
     }
 
     if (file->f_flags & O_NONBLOCK) {

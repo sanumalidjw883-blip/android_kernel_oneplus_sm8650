@@ -6,7 +6,7 @@
 #ifndef _TMS_GUIDEV_H_
 #define _TMS_GUIDEV_H_
 /*********** PART0: Head files ***********/
-#include "../tms_common.h"
+//#include "../tms_common.h"
 #include "../nfc/nfc_driver.h"
 
 /*********** PART1: Define Area ***********/
@@ -54,6 +54,7 @@ struct match_info {
 };
 
 struct guide_dev {
+    bool                  dlpin_flag;
     struct i2c_client     *client;
     struct device         *dev;
     struct hw_resource    hw_res;
