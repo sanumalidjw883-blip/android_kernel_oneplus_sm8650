@@ -886,6 +886,12 @@ config UCLAMP_BUCKETS_COUNT
 
 	  If in doubt, use the default value.
 
+
+
+#ifdef OPLUS_FEATURE_PERFORMANCE_SCHED
+source "kernel/oplus_cpu/sched/Kconfig"
+#endif /* OPLUS_FEATURE_PERFORMANCE_SCHED */
+
 endmenu
 
 #
@@ -1058,6 +1064,10 @@ config RT_GROUP_SCHED
 	  realtime bandwidth for them.
 	  See Documentation/scheduler/sched-rt-group.rst for more information.
 
+config EXT_GROUP_SCHED
+	bool
+	depends on SCHED_CLASS_EXT && CGROUP_SCHED
+	default y
 endif #CGROUP_SCHED
 
 config UCLAMP_TASK_GROUP
