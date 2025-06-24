@@ -758,6 +758,7 @@ struct ufs_qcom_host {
 	struct notifier_block ufs_qcom_panic_nb;
 	bool broken_ahit_wa;
 	unsigned long active_cmds;
+	bool irq_toggle_affinity_by_ioloading;
 };
 
 static inline u32

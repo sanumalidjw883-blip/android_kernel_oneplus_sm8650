@@ -1892,6 +1892,11 @@ static int ufs_qcom_resume(struct ufs_hba *hba, enum ufs_pm_op pm_op)
 	if (host->dbg_en)
 		trace_ufs_qcom_resume(dev_name(hba->dev), pm_op, hba->rpm_lvl, hba->spm_lvl,
 				hba->uic_link_state, hba->curr_dev_pwr_mode, err);
+
+	if (host->irq_toggle_affinity_by_ioloading) {
+		queue_delayed_work(host->ufs_qos->workq, &host->fwork,
+			msecs_to_jiffies(UFS_QCOM_LOAD_MON_DLY_MS));
+	}
 	return 0;
 }
 
@@ -2675,9 +2680,10 @@ static void ufs_qcom_set_caps(struct ufs_hba *hba)
 			hba->caps |= UFSHCD_CAP_WB_EN;
 	}
 
-	if (of_property_read_bool(np, "ufshc_cap_clk_scaling")) {
-		hba->caps |= UFSHCD_CAP_CLK_SCALING;
-	}
+	if (!(hba->caps & UFSHCD_CAP_CLK_SCALING) && of_property_read_bool(np, "irq_toggle_affinity_by_ioloading")) {
+		host->irq_toggle_affinity_by_ioloading = true;
+	} else
+		host->irq_toggle_affinity_by_ioloading = false;
 
 	hba->caps |= UFSHCD_CAP_CRYPTO;
 
@@ -3396,8 +3402,9 @@ static void ufs_qcom_qos(struct ufs_hba *hba, int tag)
 	if (!qcg)
 		return;
 
-	if (qcg->perf_core && !host->cpufreq_dis &&
+	if ((qcg->perf_core && !host->cpufreq_dis &&
 					!!atomic_read(&host->scale_up))
+					|| host->irq_toggle_affinity_by_ioloading)
 		atomic_inc(&host->num_reqs_threshold);
 
 	if (qcg->voted) {
@@ -5111,8 +5118,9 @@ static int ufs_qcom_clk_scale_notify(struct ufs_hba *hba,
 			return err;
 		if (scale_up) {
 			err = ufs_qcom_clk_scale_up_pre_change(hba);
-			if (!host->cpufreq_dis &&
-			    !(atomic_read(&host->therm_mitigation))) {
+			if ((!host->cpufreq_dis &&
+			    !(atomic_read(&host->therm_mitigation)))
+				&& !host->irq_toggle_affinity_by_ioloading ) {
 				atomic_set(&host->num_reqs_threshold, 0);
 				queue_delayed_work(host->ufs_qos->workq,
 						  &host->fwork,
