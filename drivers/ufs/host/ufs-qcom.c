@@ -962,7 +962,7 @@ static int ufs_qcom_enable_hw_clk_gating(struct ufs_hba *hba)
 			UNUSED_UNIPRO_CLK_GATED, UFS_AH8_CFG);
 
 	/* Ensure that HW clock gating is enabled before next operations */
-	mb();
+	ufshcd_readl(hba, REG_UFS_CFG2);
 
 	/* Enable Qunipro internal clock gating if supported */
 	if (!ufs_qcom_cap_qunipro_clk_gating(host))
@@ -1150,7 +1150,7 @@ static int __ufs_qcom_cfg_timers(struct ufs_hba *hba, u32 gear,
 		 * make sure above write gets applied before we return from
 		 * this function.
 		 */
-		mb();
+		ufshcd_readl(hba, REG_UFS_SYS1CLK_1US);
 	}
 
 	if (ufs_qcom_cap_qunipro(host))
@@ -4217,6 +4217,15 @@ void recordUniproErr(
 			rec->unipro_DME_err_cnt[ec]++;
 		}
 		break;
+	case UFS_EVT_ABORT:
+		rec->task_abort_cnt++;
+		break;
+	case UFS_EVT_HOST_RESET:
+		rec->host_reset_cnt++;
+		break;
+	case UFS_EVT_DEV_RESET:
+		rec->dev_reset_cnt++;
+		break;
 	default:
 		break;
 	}
@@ -4247,6 +4256,9 @@ static int record_read_func(struct seq_file *s, void *v)
 	SEQ_EASY_PRINT(ufs_bus_err_cnt);
 	SEQ_EASY_PRINT(ufs_crypto_err_cnt);
 	SEQ_EASY_PRINT(ufs_link_lost_cnt);
+	SEQ_EASY_PRINT(task_abort_cnt);
+	SEQ_EASY_PRINT(host_reset_cnt);
+	SEQ_EASY_PRINT(dev_reset_cnt);
 	SEQ_EASY_PRINT(unipro_PA_err_total_cnt);
 	SEQ_PA_PRINT(UNIPRO_PA_LANE0_ERR_CNT);
 	SEQ_PA_PRINT(UNIPRO_PA_LANE1_ERR_CNT);
@@ -4355,6 +4367,9 @@ static int record_upload_read_func(struct seq_file *s, void *v)
 	SEQ_UPLOAD_PRINT(ufs_bus_err_cnt);
 	SEQ_UPLOAD_PRINT(ufs_crypto_err_cnt);
 	SEQ_UPLOAD_PRINT(ufs_link_lost_cnt);
+	SEQ_UPLOAD_PRINT(task_abort_cnt);
+	SEQ_UPLOAD_PRINT(host_reset_cnt);
+	SEQ_UPLOAD_PRINT(dev_reset_cnt);
 	SEQ_UPLOAD_PRINT(unipro_PA_err_total_cnt);
 	SEQ_UPLOAD_PRINT(unipro_DL_err_total_cnt);
 	SEQ_UPLOAD_PRINT(unipro_NL_err_total_cnt);
@@ -5969,6 +5984,8 @@ static void ufs_qcom_config_scaling_param(struct ufs_hba *hba,
 	p->timer = DEVFREQ_TIMER_DELAYED;
 	d->upthreshold = 70;
 	d->downdifferential = 65;
+
+	hba->clk_scaling.suspend_on_no_request = true;
 }
 
 #else
