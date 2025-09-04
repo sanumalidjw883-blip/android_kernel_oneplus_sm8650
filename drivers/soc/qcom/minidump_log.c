@@ -138,6 +138,11 @@ static struct seq_buf *md_cntxt_seq_buf;
 static DEFINE_PER_CPU(struct pt_regs, regs_before_stop);
 #endif
 
+#ifdef CONFIG_QCOM_MINIDUMP_PANIC_KTASK_STACK
+#define MD_KTASK_STACK_PAGES	768
+static struct seq_buf *md_ktask_stack_buf;
+#endif
+
 /* Meminfo */
 #ifdef CONFIG_QCOM_MINIDUMP_PANIC_MEMORY_INFO
 static struct seq_buf *md_meminfo_seq_buf;
@@ -177,6 +182,9 @@ module_param_array(key_modules, charp, &n_modump, 0644);
 #endif
 
 #define FREQ_LOG_MAX	10
+
+/* #ifdef OPLUS_FEATURE_DFR */
+static bool current_stack_enable = false;
 
 static int register_stack_entry(struct md_region *ksp_entry, u64 sp, u64 size)
 {
@@ -278,11 +286,16 @@ void dump_stack_minidump(u64 sp)
 	struct vm_struct *stack_vm_area;
 	unsigned int i, copy_pages;
 
-	if (IS_ENABLED(CONFIG_QCOM_DYN_MINIDUMP_STACK))
+	if (current_stack_enable == true) {
+		pr_err("CONFIG_QCOM_DYN_MINIDUMP_STACK is enabled, returning.\n");
 		return;
+	}
 
-	if (is_idle_task(current))
+	if (is_idle_task(current)) {
+		pr_err("CPU %d current (stack_vm_area=%px, stack=%px, stack_refcount=%d) is idle, returning.\n",
+			cpu, current->stack_vm_area, current->stack, refcount_read(&current->stack_refcount));
 		return;
+	}
 
 	is_vmap_stack = IS_ENABLED(CONFIG_VMAP_STACK);
 
@@ -298,20 +311,30 @@ void dump_stack_minidump(u64 sp)
 	 * address of one page of the stack.
 	 */
 	stack_vm_area = task_stack_vm_area(current);
-	if (is_vmap_stack) {
-		sp &= ~(PAGE_SIZE - 1);
-		copy_pages = calculate_copy_pages(sp, stack_vm_area);
-		for (i = 0; i < copy_pages; i++) {
-			scnprintf(ksp_entry.name, sizeof(ksp_entry.name),
-				  "KSTACK%d_%d", cpu, i);
-			(void)register_stack_entry(&ksp_entry, sp, PAGE_SIZE);
-			sp += PAGE_SIZE;
+	if (stack_vm_area) {
+		if (is_vmap_stack) {
+			sp &= ~(PAGE_SIZE - 1);
+			copy_pages = calculate_copy_pages(sp, stack_vm_area);
+			if (copy_pages > 0) {
+				for (i = 0; i < copy_pages; i++) {
+					scnprintf(ksp_entry.name, sizeof(ksp_entry.name),
+						  "KSTACK%d_%d", cpu, i);
+					(void)register_stack_entry(&ksp_entry, sp, PAGE_SIZE);
+					sp += PAGE_SIZE;
+				}
+			} else {
+				pr_err("CPU %d current (comm=%s, pid=%d) sp (0x%llx) not in range (0x%llx, +0x%llx), returning.\n",
+					cpu, current->comm, current->pid, sp, (u64)stack_vm_area->addr, get_vm_area_size(stack_vm_area));
+			}
+		} else {
+			sp &= ~(THREAD_SIZE - 1);
+			scnprintf(ksp_entry.name, sizeof(ksp_entry.name), "KSTACK%d",
+				  cpu);
+			(void)register_stack_entry(&ksp_entry, sp, THREAD_SIZE);
 		}
 	} else {
-		sp &= ~(THREAD_SIZE - 1);
-		scnprintf(ksp_entry.name, sizeof(ksp_entry.name), "KSTACK%d",
-			  cpu);
-		(void)register_stack_entry(&ksp_entry, sp, THREAD_SIZE);
+		pr_err("CPU %d current (comm=%s, pid=%d, stack=%px, stack_refcount=%d) stack_vm_area is 0, returning.\n",
+			cpu, current->comm, current->pid, current->stack, refcount_read(&current->stack_refcount));
 	}
 
 	scnprintf(ktsk_entry.name, sizeof(ktsk_entry.name), "KTASK%d", cpu);
@@ -1028,6 +1051,7 @@ static void md_dump_data(unsigned long addr, int nbytes, const char *name)
 
 static void md_reg_context_data(struct pt_regs *regs)
 {
+	unsigned int i;
 	int nbytes = 128;
 
 	if (user_mode(regs) ||  !regs->pc)
@@ -1036,6 +1060,12 @@ static void md_reg_context_data(struct pt_regs *regs)
 	md_dump_data(regs->pc - nbytes, nbytes * 2, "PC");
 	md_dump_data(regs->regs[30] - nbytes, nbytes * 2, "LR");
 	md_dump_data(regs->sp - nbytes, nbytes * 2, "SP");
+	for (i = 0; i < 30; i++) {
+		char name[4];
+
+		snprintf(name, sizeof(name), "X%u", i);
+		md_dump_data(regs->regs[i] - nbytes, nbytes * 2, name);
+	}
 }
 
 static inline void md_dump_panic_regs(void)
@@ -1126,6 +1156,46 @@ static void md_ipi_stop(void *unused, struct pt_regs *regs)
 	unsigned int cpu = smp_processor_id();
 
 	per_cpu(regs_before_stop, cpu) = *regs;
+	dump_stack_minidump(regs->sp);
+}
+#endif
+
+#ifdef CONFIG_QCOM_MINIDUMP_PANIC_KTASK_STACK
+static bool dump_trace(void *arg, unsigned long where)
+{
+	seq_buf_printf(md_ktask_stack_buf, "%pSb\n", (void *)where);
+	return true;
+}
+
+static void md_dump_ktask_stack(void)
+{
+	struct task_struct *g, *t;
+	unsigned int state;
+	void (*_arch_stack_walk)(stack_trace_consume_fn consume_entry, void *cookie,
+		     struct task_struct *task, struct pt_regs *regs);
+
+	if (!md_ktask_stack_buf)
+		return;
+
+	_arch_stack_walk = DEBUG_SYMBOL_LOOKUP(arch_stack_walk);
+	if (!_arch_stack_walk) {
+		seq_buf_printf(md_ktask_stack_buf, "Failed to lookup arch_stack_walk symbol\n");
+		return;
+	}
+
+	for_each_process_thread(g, t) {
+		state = READ_ONCE(t->__state);
+		if ((state & TASK_UNINTERRUPTIBLE) && !(state & TASK_WAKEKILL)
+					&& !(state & TASK_NOLOAD))
+			seq_buf_printf(md_ktask_stack_buf,
+					"Task blocked for %ld seconds!",
+					(jiffies - t->last_switch_time) / HZ);
+		seq_buf_printf(md_ktask_stack_buf, "%d [%s]\n",
+				task_pid_nr(t), t->comm);
+		_arch_stack_walk(dump_trace, NULL, t, NULL);
+		seq_buf_printf(md_ktask_stack_buf, "\n");
+	}
+	seq_buf_printf(md_ktask_stack_buf, "---ktask stack end---\n");
 }
 #endif
 
@@ -1146,6 +1216,11 @@ dump_rq:
 #endif
 	md_dump_next_event();
 	md_dump_runqueues();
+
+#ifdef CONFIG_QCOM_MINIDUMP_PANIC_KTASK_STACK
+	md_dump_ktask_stack();
+#endif
+
 #ifdef CONFIG_QCOM_MINIDUMP_PANIC_MEMORY_INFO
 	if (md_meminfo_seq_buf)
 		md_dump_meminfo(md_meminfo_seq_buf);
@@ -1169,6 +1244,8 @@ dump_rq:
 	if (md_dma_buf_procs_addr)
 		md_dma_buf_procs(md_dma_buf_procs_addr, md_dma_buf_procs_size);
 #endif
+	dump_stack_minidump(0);
+
 	md_in_oops_handler = false;
 }
 EXPORT_SYMBOL(md_dump_process);
@@ -1282,6 +1359,10 @@ static void md_register_panic_data(void)
 #endif
 	md_register_panic_entries(MD_RUNQUEUE_PAGES, "KRUNQUEUE",
 				  &md_runq_seq_buf);
+#ifdef CONFIG_QCOM_MINIDUMP_PANIC_KTASK_STACK
+	md_register_panic_entries(MD_KTASK_STACK_PAGES, "KTASK_STACK",
+				  &md_ktask_stack_buf);
+#endif
 }
 
 static int register_vmap_mem(const char *name, void *virual_addr, size_t dump_len)
@@ -1548,9 +1629,6 @@ static void register_pstore_info(void)
 	}
 }
 #endif
-
-/* #ifdef OPLUS_FEATURE_DFR */
-static bool current_stack_enable = false;
 
 int clear_md_region(int regno,struct md_region *ksp_entry)
 {
